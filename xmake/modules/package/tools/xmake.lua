@@ -528,13 +528,17 @@ function install(package, configs, opt)
     local envs = opt.envs or buildenvs(package)
 
     -- if the package is installed locally, pass the local packages directory
-    -- to the child xmake process so it can find already-installed deps
-    -- without re-installing them to the global directory
+    -- to the child xmake process so it can reuse deps already installed there
+    -- (e.g. marked local by package.install_locally) instead of reinstalling them
+    -- globally. this also applies to source_embed packages; deps that only exist
+    -- globally are still reused via the extern fallback in package:fetch().
     -- @see https://github.com/xmake-io/xmake/discussions/7441
-    if package:is_local() and not package:is_source_embed() then
+    if package:is_local() then
         envs = table.clone(envs)
         envs.XMAKE_PKG_INSTALLDIR = package_core.installdir({localdir = true})
-        envs.XMAKE_PKG_CACHEDIR   = package_core.cachedir({localdir = true})
+        -- pass the cache root (not the date-suffixed dir), so the child
+        -- process resolves the same shared monthly cache as the parent
+        envs.XMAKE_PKG_CACHEDIR   = package_core.cachedir({rootonly = true})
     end
 
     -- pass local repositories

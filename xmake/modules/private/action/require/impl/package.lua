@@ -136,7 +136,8 @@ function _load_require(require_str, requires_extra, opt)
     -- check require options
     local extra_options = hashset.of("plat", "arch", "kind", "host", "targetos",
     "alias", "group", "system", "option", "default", "optional", "debug",
-    "verify", "external", "private", "build", "configs", "version", "public")
+    "verify", "external", "private", "build", "configs", "version", "public",
+    "locally")
     for name, value in pairs(require_extra) do
         if not extra_options:has(name) then
             wprint("add_requires(\"%s\") has unknown option: {%s=%s}!", require_str, name, tostring(value))
@@ -168,6 +169,7 @@ function _load_require(require_str, requires_extra, opt)
         alias            = require_extra.alias,     -- set package alias name
         group            = require_extra.group,     -- only uses the first package in same group
         system           = require_extra.system,    -- default: true, we can set it to disable system package manually
+        locally          = require_extra.locally,   -- default: nil, override the install location policies for this package (true: local, false: global)
         option           = require_extra.option,    -- set and attach option
         configs          = require_build_configs,   -- the required building configurations
         default          = require_extra.default,   -- default: true, we can set it to disable package manually

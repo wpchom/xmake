@@ -764,6 +764,12 @@ function _instance:is_local()
     return self._IS_LOCAL or self:is_source_embed() or self:is_binary_embed() or self:is_thirdparty()
 end
 
+-- is extern package? (installed in the real global packages directory,
+-- skipping the env level which may carry a nested-build redirect)
+function _instance:is_extern()
+    return self._IS_EXTERN
+end
+
 -- is debug package? (deprecated)
 function _instance:debug()
     return self:is_debug()
@@ -794,6 +800,14 @@ function _instance:_mark_as_local(is_local)
     if self:is_local() ~= is_local then
         self._INSTALLDIR = nil
         self._IS_LOCAL = is_local
+    end
+end
+
+-- mark it as extern package
+function _instance:_mark_as_extern(is_extern)
+    if self:is_extern() ~= is_extern then
+        self._INSTALLDIR = nil
+        self._IS_EXTERN = is_extern
     end
 end
 
@@ -948,6 +962,8 @@ function _instance:installdir(...)
             else
                 if self:is_local() then
                     installdir = path.join(package.installdir({localdir = true}), name:sub(1, 1):lower(), name)
+                elseif self:is_extern() then
+                    installdir = path.join(package.installdir({externdir = true}), name:sub(1, 1):lower(), name)
                 else
                     installdir = path.join(package.installdir(), name:sub(1, 1):lower(), name)
                 end
@@ -2117,18 +2133,31 @@ function _instance:fetch(opt)
 
     -- always install to the local project directory?
     -- @see https://github.com/xmake-io/xmake/pull/4376
-    local install_locally
-    if project and project.policy("package.install_locally") then
-        install_locally = true
+    -- the locally require option overrides the policies when set
+    local install_locally = self:requireinfo().locally
+    if install_locally == nil then
+        if project and project.policy("package.install_locally") then
+            install_locally = true
+        end
+        if install_locally == nil and self:policy("package.install_locally") then
+            install_locally = true
+        end
     end
-    if install_locally == nil and self:policy("package.install_locally") then
-        install_locally = true
-    end
-    if not self:is_local() and install_locally and system ~= true then
-        local has_global = os.isfile(self:manifest_file())
-        self:_mark_as_local(true)
-        if has_global and not os.isfile(self:manifest_file()) then
-            self:_mark_as_local(false)
+    if not self:is_local() and system ~= true then
+        local has_manifest = os.isfile(self:manifest_file())
+        if install_locally then
+            -- install locally, but fall back to the current root if only it has this package
+            self:_mark_as_local(true)
+            if has_manifest and not os.isfile(self:manifest_file()) then
+                self:_mark_as_local(false)
+            end
+        elseif not has_manifest then
+            -- reuse the real global directory if only it has this package,
+            -- e.g. nested builds redirect the package root via XMAKE_PKG_INSTALLDIR
+            self:_mark_as_extern(true)
+            if not os.isfile(self:manifest_file()) then
+                self:_mark_as_extern(false)
+            end
         end
     end
 
@@ -3111,12 +3140,20 @@ end
 -- @param opt   the options, e.g. {localdir = true}
 --              - localdir: return the local project packages directory (build/.packages)
 --                          instead of the global directory (~/.xmake/packages)
+--              - externdir: return the default global packages directory, skipping the env level
+--                           (XMAKE_PKG_INSTALLDIR may carry a nested-build redirect)
 --
 -- @return      the install directory path
 --
 function package.installdir(opt)
     if opt and opt.localdir then
         return path.join(config.builddir({absolute = true}), ".packages")
+    end
+    if opt and opt.externdir then
+        -- skip the env level (XMAKE_PKG_INSTALLDIR may be redirected),
+        -- but keep the global config layer (xmake g --pkg_installdir)
+        local installdir = global.get("pkg_installdir") or path.join(global.directory(), "packages")
+        return path.normalize(path.absolute(installdir))
     end
     local installdir = package._INSTALLDIR
     if not installdir then
